@@ -95,15 +95,22 @@
       <div class="scroll tall"><table id="intervals" class="data intervals"></table></div>
 
       <div class="actions">
-        <button id="csvEvents" class="secondary" type="button">Events CSV</button>
-        <button id="csvIntervals" class="secondary" type="button">Intervals CSV</button>
-        <button id="csvSummary" class="secondary" type="button">Summary CSV</button>
-        <button id="newBtn" class="primary" type="button">New session</button>
+        <button id="pdfBtn" class="primary" type="button">Download PDF report</button>
+        <button id="xlsxBtn" class="primary" type="button">Download Excel workbook</button>
+        <button id="newBtn" class="secondary" type="button">New session</button>
+      </div>
+      <p id="exportMsg" class="error" role="status"></p>
+      <div class="raw">
+        <span>Raw data (CSV) for SPSS, R and similar:</span>
+        <button id="csvEvents" class="small" type="button">Events</button>
+        <button id="csvIntervals" class="small" type="button">Intervals</button>
+        <button id="csvSummary" class="small" type="button">Summary</button>
       </div>
     </section>
   </main>
 
   <script src="logic.js"></script>
+  <script src="report.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -448,6 +448,19 @@
     }
   }
 
+  function drawPie(svg, cx, cy, r, frac, tipOn, tipOff) {
+    if (frac <= 0 || frac >= 1) {
+      svgEl('circle', { cx, cy, r, class: frac >= 1 ? 'slice-on' : 'slice-off', 'data-tip': frac >= 1 ? tipOn : tipOff }, svg);
+      return;
+    }
+    // "On" slice runs clockwise from 12 o'clock; "off" fills the rest.
+    const a = frac * 2 * Math.PI;
+    const x = cx + r * Math.sin(a), y = cy - r * Math.cos(a);
+    const large = frac > 0.5 ? 1 : 0;
+    svgEl('path', { d: `M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 ${large} 1 ${x},${y} Z`, class: 'slice-on', 'data-tip': tipOn }, svg);
+    svgEl('path', { d: `M${cx},${cy} L${x},${y} A${r},${r} 0 ${1 - large} 1 ${cx},${cy - r} Z`, class: 'slice-off', 'data-tip': tipOff }, svg);
+  }
+
   function pieChart(s) {
     const onSec = s.totalDuration || 0;
     const offSec = Math.max(0, session.endT - onSec);
@@ -464,16 +477,7 @@
       'aria-label': `${s.name}: on ${pct(onPct)}, off ${pct(offPct)} of the session`,
     }, fig);
 
-    if (frac <= 0 || frac >= 1) {
-      svgEl('circle', { cx: c, cy: c, r, class: frac >= 1 ? 'slice-on' : 'slice-off', 'data-tip': frac >= 1 ? tipOn : tipOff }, svg);
-    } else {
-      // "On" slice runs clockwise from 12 o'clock; "off" fills the rest.
-      const a = frac * 2 * Math.PI;
-      const x = c + r * Math.sin(a), y = c - r * Math.cos(a);
-      const large = frac > 0.5 ? 1 : 0;
-      svgEl('path', { d: `M${c},${c} L${c},${c - r} A${r},${r} 0 ${large} 1 ${x},${y} Z`, class: 'slice-on', 'data-tip': tipOn }, svg);
-      svgEl('path', { d: `M${c},${c} L${x},${y} A${r},${r} 0 ${1 - large} 1 ${c},${c - r} Z`, class: 'slice-off', 'data-tip': tipOff }, svg);
-    }
+    drawPie(svg, c, c, r, frac, tipOn, tipOff);
 
     const cap = document.createElement('figcaption');
     cap.innerHTML = '<b></b><span class="v"></span><span class="sub"></span>';
@@ -571,17 +575,20 @@
   }
 
   /* ───────── CSV export ───────── */
-  function baseName(kind) {
+  function baseName(kind, ext = 'csv') {
     const c = session.config;
     const d = session.startedAt;
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
     const who = (c.participant || 'session').replace(/[^\w.-]+/g, '_');
-    return `${who}_${stamp}_${kind}.csv`;
+    return `${who}_${stamp}_${kind}.${ext}`;
   }
 
   function download(name, text) {
-    const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
+    saveBlob(name, new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' }));
+  }
+
+  function saveBlob(name, blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -591,6 +598,152 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     session.exported = true;
+  }
+
+  /* ───────── formatted exports (PDF / Excel) ───────── */
+  // Fixed light colours for exported charts, whatever the screen theme.
+  const EXPORT_STYLE = {
+    'slice-on': { fill: '#2a78d6', stroke: '#ffffff', 'stroke-width': 2, 'stroke-linejoin': 'round' },
+    'slice-off': { fill: '#d3d7de', stroke: '#ffffff', 'stroke-width': 2, 'stroke-linejoin': 'round' },
+    bar: { fill: '#2a78d6' },
+    grid: { stroke: '#e6e8ec', 'stroke-width': 1 },
+    axis: { stroke: '#c9ced6', 'stroke-width': 1 },
+    tick: { fill: '#5d6673', 'font-size': 11 },
+    val: { fill: '#1b1f24', 'font-size': 13, 'font-weight': 600 },
+    lab: { fill: '#1b1f24', 'font-size': 12 },
+    cap: { fill: '#1b1f24', 'font-size': 13, 'font-weight': 600 },
+    big: { fill: '#1b1f24', 'font-size': 18, 'font-weight': 600 },
+    sub: { fill: '#5d6673', 'font-size': 12 },
+    'sw-on': { fill: '#2a78d6' },
+    'sw-off': { fill: '#d3d7de' },
+  };
+
+  /** All duration pies in one SVG (with legend and captions), for export. */
+  function piesExportSVG(durations) {
+    const perRow = Math.min(4, durations.length);
+    const cw = 170, ch = 205, legendH = 30;
+    const rows = Math.ceil(durations.length / perRow);
+    const W = perRow * cw, H = legendH + rows * ch;
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
+    svgEl('rect', { x: 4, y: 6, width: 12, height: 12, rx: 3, class: 'sw-on' }, svg);
+    svgEl('text', { x: 22, y: 17, class: 'sub' }, svg).textContent = 'On';
+    svgEl('rect', { x: 52, y: 6, width: 12, height: 12, rx: 3, class: 'sw-off' }, svg);
+    svgEl('text', { x: 70, y: 17, class: 'sub' }, svg).textContent = 'Off';
+    durations.forEach((s, i) => {
+      const cx = (i % perRow) * cw + cw / 2;
+      const top = legendH + Math.floor(i / perRow) * ch;
+      const onSec = s.totalDuration || 0;
+      const frac = session.endT > 0 ? Math.min(1, onSec / session.endT) : 0;
+      drawPie(svg, cx, top + 66, 62, frac, '', '');
+      const name = s.name.length > 20 ? s.name.slice(0, 19) + '…' : s.name;
+      svgEl('text', { x: cx, y: top + 154, class: 'cap', 'text-anchor': 'middle' }, svg).textContent = name;
+      svgEl('text', { x: cx, y: top + 177, class: 'big', 'text-anchor': 'middle' }, svg).textContent = `${pct(frac * 100)} on`;
+      svgEl('text', { x: cx, y: top + 196, class: 'sub', 'text-anchor': 'middle' }, svg).textContent =
+        `${L.fmtTime(onSec, false)} of ${L.fmtTime(session.endT, false)}`;
+    });
+    return svg;
+  }
+
+  /** Render an SVG to a PNG data URL at 3x for crisp printing. */
+  function svgToPng(svg) {
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', SVG_NS);
+    clone.setAttribute('font-family', 'Helvetica, Arial, sans-serif');
+    clone.querySelectorAll('.hit').forEach((el) => el.remove());
+    clone.querySelectorAll('[class]').forEach((el) => {
+      const st = EXPORT_STYLE[el.getAttribute('class')];
+      if (st) for (const k in st) el.setAttribute(k, st[k]);
+      el.removeAttribute('class');
+      el.removeAttribute('data-tip');
+    });
+    const w = +clone.getAttribute('width'), h = +clone.getAttribute('height');
+    const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = 3;
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0, w, h);
+        try { resolve({ url: canvas.toDataURL('image/png'), w, h }); } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('Chart image could not be rendered'));
+      img.src = src;
+    });
+  }
+
+  async function reportModel() {
+    const c = session.config;
+    const { intervals, summary } = computeResults();
+    const durations = summary.filter((s) => s.type === 'duration');
+    const counts = summary.filter((s) => s.type === 'event');
+    const charts = { pies: null, bars: null };
+    if (session.endT > 0) {
+      try {
+        if (durations.length) charts.pies = await svgToPng(piesExportSVG(durations));
+        if (counts.length) charts.bars = await svgToPng(barChart(counts).querySelector('svg'));
+      } catch (e) {
+        console.warn('Charts left out of export:', e);
+      }
+    }
+    return {
+      meta: {
+        participant: c.participant, observer: c.observer, startedAt: session.startedAt,
+        methodLabel: METHOD_LABEL[c.method], intervalSec: c.intervalSec, sessionMin: c.sessionMin, endT: session.endT,
+      },
+      behaviors: session.behaviors, summary, intervals, events: session.events, charts,
+    };
+  }
+
+  const scriptCache = {};
+  function loadScript(src) {
+    if (!scriptCache[src]) {
+      scriptCache[src] = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = src;
+        el.onload = resolve;
+        el.onerror = () => { delete scriptCache[src]; reject(new Error('Could not load ' + src)); };
+        document.head.appendChild(el);
+      });
+    }
+    return scriptCache[src];
+  }
+
+  async function runExport(btn, work) {
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Preparing…';
+    $('exportMsg').textContent = '';
+    try {
+      await work();
+    } catch (e) {
+      console.error(e);
+      $('exportMsg').textContent = 'Export failed: ' + e.message + '. The CSV downloads below still work.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  function exportPDF() {
+    return runExport($('pdfBtn'), async () => {
+      await loadScript('vendor/jspdf-4.2.1.umd.min.js');
+      const blob = window.ObsReport.buildPDF(await reportModel(), window.jspdf.jsPDF);
+      saveBlob(baseName('report', 'pdf'), blob);
+    });
+  }
+
+  function exportXLSX() {
+    return runExport($('xlsxBtn'), async () => {
+      await loadScript('vendor/exceljs-4.4.0.min.js');
+      const blob = await window.ObsReport.buildXLSX(await reportModel(), window.ExcelJS);
+      saveBlob(baseName('report', 'xlsx'), blob);
+    });
   }
 
   function exportEvents() {
@@ -655,6 +808,8 @@
   $('csvEvents').addEventListener('click', exportEvents);
   $('csvIntervals').addEventListener('click', exportIntervals);
   $('csvSummary').addEventListener('click', exportSummary);
+  $('pdfBtn').addEventListener('click', exportPDF);
+  $('xlsxBtn').addEventListener('click', exportXLSX);
 
   document.addEventListener('keydown', (e) => {
     if (!session || session.ended || $('run').hidden) return;
