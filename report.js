@@ -3,7 +3,7 @@
  * Both libraries are vendored in ./vendor and loaded only when an export is requested.
  *
  * Input is a plain "model" built by app.js:
- *   { meta: {participant, observer, startedAt: Date, methodLabel, intervalSec, sessionMin, endT},
+ *   { meta: {participant, observer, grade, className, period, startedAt: Date, methodLabel, intervalSec, sessionMin, endT},
  *     behaviors, summary, intervals, events, describe(ev) -> string,
  *     charts: { pies, intervalPies, bars }  each {url, w, h} | null }
  */
@@ -26,6 +26,9 @@
     return [
       ['Participant', m.meta.participant || '—'],
       ['Observer', m.meta.observer || '—'],
+      ['Grade', m.meta.grade || '—'],
+      ['Class', m.meta.className || '—'],
+      ['Period', m.meta.period || '—'],
       ['Date', d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })],
       ['Start time', d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })],
       ['Recording method', m.meta.methodLabel],

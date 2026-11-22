@@ -4,8 +4,10 @@
   const $ = (id) => document.getElementById(id);
 
   const STORE_KEY = 'obs-timer-config-v1';
+  const META_FIELDS = [['grade', 'Grade'], ['className', 'Class'], ['period', 'Period']];
   const DEFAULT_CONFIG = {
-    participant: '', observer: '', sessionMin: 10, intervalSec: 10, method: 'partial', cue: true,
+    participant: '', observer: '', grade: '', className: '', period: '',
+    sessionMin: 10, intervalSec: 10, method: 'partial', cue: false,
     behaviors: [
       { name: 'On task', key: 'a', type: 'duration' },
       { name: 'Vocalisation', key: 's', type: 'event' },
@@ -19,7 +21,8 @@
   function loadConfig() {
     try {
       const c = JSON.parse(localStorage.getItem(STORE_KEY));
-      if (c && Array.isArray(c.behaviors)) return { ...DEFAULT_CONFIG, ...c };
+      // The interval beep always starts off; it is not restored from earlier sessions.
+      if (c && Array.isArray(c.behaviors)) return { ...DEFAULT_CONFIG, ...c, cue: false };
     } catch (e) { /* storage unavailable */ }
     return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
   }
@@ -37,6 +40,7 @@
   function renderSetup() {
     $('participant').value = config.participant;
     $('observer').value = config.observer;
+    for (const [k] of META_FIELDS) $(k).value = config[k] || '';
     $('sessionMin').value = config.sessionMin;
     $('intervalSec').value = config.intervalSec;
     $('method').value = config.method;
@@ -70,6 +74,7 @@
     return {
       participant: $('participant').value.trim(),
       observer: $('observer').value.trim(),
+      ...Object.fromEntries(META_FIELDS.map(([k]) => [k, $(k).value.trim()])),
       sessionMin: parseFloat($('sessionMin').value),
       intervalSec: parseFloat($('intervalSec').value),
       method: $('method').value,
@@ -108,9 +113,10 @@
       config: c,
       behaviors: c.behaviors.map((b, i) => ({ ...b, id: 'b' + (i + 1) })),
       events: [],
-      running: true,
+      running: false,
+      started: false,
       base: 0,
-      startPerf: performance.now(),
+      startPerf: 0,
       startedAt: new Date(),
       lastInterval: 0,
       ended: false,
@@ -119,7 +125,6 @@
     session.byKey = Object.fromEntries(session.behaviors.map((b) => [b.key, b]));
 
     initAudio();
-    requestWakeLock();
     buildButtons();
     $('meta').textContent = metaLine();
     show('run');
@@ -136,6 +141,18 @@
 
   function togglePause() {
     if (!session || session.ended) return;
+    if (!session.started) {
+      // First press starts the clock; the session's start time is this moment.
+      session.started = true;
+      session.startedAt = new Date();
+      session.startPerf = performance.now();
+      session.running = true;
+      $('meta').textContent = metaLine();
+      requestWakeLock();
+      renderLog();
+      tick();
+      return;
+    }
     const t = elapsed();
     if (session.running) {
       session.base = t;
@@ -227,10 +244,12 @@
     $('remaining').textContent = isFinite(lim) ? L.fmtTime(lim - t, false) : '–';
     $('intervalNum').textContent = idx + 1;
     $('intervalBar').style.width = ((t % I) / I) * 100 + '%';
-    $('pauseBtn').textContent = session.running ? 'Pause' : 'Resume';
+    const pb = $('pauseBtn');
+    pb.textContent = !session.started ? 'Start timer' : session.running ? 'Pause' : 'Resume';
+    pb.className = session.started ? 'secondary' : 'primary';
     const st = $('status');
-    st.textContent = session.running ? 'Recording' : 'Paused · Space resumes';
-    st.className = 'status ' + (session.running ? 'running' : 'paused');
+    st.textContent = !session.started ? 'Ready · Space starts' : session.running ? 'Recording' : 'Paused · Space resumes';
+    st.className = 'status' + (!session.started ? '' : session.running ? ' running' : ' paused');
     renderButtons();
   }
 
@@ -356,6 +375,7 @@
     const parts = [];
     if (c.participant) parts.push(`Participant ${c.participant}`);
     if (c.observer) parts.push(`Observer ${c.observer}`);
+    for (const [k, label] of META_FIELDS) if (c[k]) parts.push(`${label} ${c[k]}`);
     parts.push(session.startedAt.toLocaleString());
     parts.push(`${METHOD_LABEL[c.method]}, ${c.intervalSec}s intervals`);
     if (session.ended) parts.push(`Observed ${L.fmtTime(session.endT, true)}`);
@@ -723,7 +743,8 @@
     }
     return {
       meta: {
-        participant: c.participant, observer: c.observer, startedAt: session.startedAt,
+        participant: c.participant, observer: c.observer, grade: c.grade, className: c.className, period: c.period,
+        startedAt: session.startedAt,
         methodLabel: METHOD_LABEL[c.method], intervalSec: c.intervalSec, sessionMin: c.sessionMin, endT: session.endT,
       },
       behaviors: session.behaviors, summary, intervals, events: session.events, charts,
@@ -778,16 +799,16 @@
 
   function exportEvents() {
     const c = session.config;
-    const rows = [['participant', 'observer', 'session_start', 'time_s', 'time', 'interval', 'behaviour', 'key', 'type', 'action', 'note']];
+    const rows = [['participant', 'observer', 'grade', 'class', 'period', 'session_start', 'time_s', 'time', 'interval', 'behaviour', 'key', 'type', 'action', 'note']];
     for (const ev of session.events) {
       const b = ev.behaviorId ? session.behaviors.find((x) => x.id === ev.behaviorId) : null;
       rows.push([
-        c.participant, c.observer, session.startedAt.toISOString(),
+        c.participant, c.observer, c.grade, c.className, c.period, session.startedAt.toISOString(),
         ev.t.toFixed(2), L.fmtTime(ev.t, true), Math.floor(ev.t / c.intervalSec) + 1,
         b ? b.name : '', b ? b.key : '', b ? b.type : '', ev.kind, ev.text || '',
       ]);
     }
-    rows.push([c.participant, c.observer, session.startedAt.toISOString(),
+    rows.push([c.participant, c.observer, c.grade, c.className, c.period, session.startedAt.toISOString(),
       session.endT.toFixed(2), L.fmtTime(session.endT, true), '', '', '', '', 'end', '']);
     download(baseName('events'), L.toCSV(rows));
   }
@@ -805,11 +826,11 @@
   function exportSummary() {
     const c = session.config;
     const { summary } = computeResults();
-    const rows = [['participant', 'observer', 'session_start', 'session_s', 'method', 'interval_s',
+    const rows = [['participant', 'observer', 'grade', 'class', 'period', 'session_start', 'session_s', 'method', 'interval_s',
       'behaviour', 'key', 'type', 'count', 'rate_per_min', 'total_duration_s', 'mean_duration_s',
       'pct_session', 'intervals_scored', 'intervals_total', 'pct_intervals']];
     for (const s of summary) {
-      rows.push([c.participant, c.observer, session.startedAt.toISOString(), session.endT.toFixed(2),
+      rows.push([c.participant, c.observer, c.grade, c.className, c.period, session.startedAt.toISOString(), session.endT.toFixed(2),
         c.method, c.intervalSec, s.name, s.key, s.type, s.count, num(s.ratePerMin, 3),
         num(s.totalDuration, 2), num(s.meanDuration, 2), num(s.pctSession, 2),
         s.intervalsScored == null ? '' : s.intervalsScored, s.intervalsTotal, num(s.pctIntervals, 2)]);

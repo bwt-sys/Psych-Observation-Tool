@@ -28,7 +28,7 @@ A standalone, no-build web app for direct behavioural observation sessions. Open
 | Key | Action |
 | --- | --- |
 | behaviour hotkey | record event, or start/stop a duration behaviour |
-| <kbd>Space</kbd> | pause / resume |
+| <kbd>Space</kbd> | start the timer, then pause / resume |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Z</kbd> | undo last entry |
 | <kbd>Enter</kbd> (in note box) | add note |
 
