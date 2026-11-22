@@ -407,7 +407,157 @@
       it.appendChild(tr);
     }
     if (!intervals.length) it.appendChild(row('td', ['No time observed.']));
+
+    renderCharts(summary);
   }
+
+  /* ───────── charts (plain SVG, no libraries) ───────── */
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  const pct = (v) => v.toFixed(1) + '%';
+
+  function renderCharts(summary) {
+    const wrap = $('charts');
+    wrap.innerHTML = '';
+    const durations = summary.filter((s) => s.type === 'duration');
+    const counts = summary.filter((s) => s.type === 'event');
+    $('chartsWrap').hidden = !(session.endT > 0) || (!durations.length && !counts.length);
+    if ($('chartsWrap').hidden) return;
+
+    if (durations.length) {
+      const card = document.createElement('div');
+      card.className = 'chart-card';
+      card.innerHTML = '<h3>Time on vs off</h3><div class="legend"><span><i class="sw on"></i>On</span><span><i class="sw off"></i>Off</span></div>';
+      const grid = document.createElement('div');
+      grid.className = 'pies';
+      for (const s of durations) grid.appendChild(pieChart(s));
+      card.appendChild(grid);
+      wrap.appendChild(card);
+    }
+    if (counts.length) {
+      const card = document.createElement('div');
+      card.className = 'chart-card';
+      card.innerHTML = '<h3>Event frequency</h3>';
+      card.appendChild(barChart(counts));
+      wrap.appendChild(card);
+    }
+  }
+
+  function pieChart(s) {
+    const onSec = s.totalDuration || 0;
+    const offSec = Math.max(0, session.endT - onSec);
+    const frac = session.endT > 0 ? Math.min(1, onSec / session.endT) : 0;
+    const onPct = frac * 100, offPct = 100 - onPct;
+    const tipOn = `${s.name}: on ${pct(onPct)} (${L.fmtTime(onSec, true)}, ${s.count} bout${s.count === 1 ? '' : 's'})`;
+    const tipOff = `${s.name}: off ${pct(offPct)} (${L.fmtTime(offSec, true)})`;
+
+    const fig = document.createElement('figure');
+    fig.className = 'pie';
+    const size = 132, r = 60, c = size / 2;
+    const svg = svgEl('svg', {
+      viewBox: `0 0 ${size} ${size}`, width: size, height: size, role: 'img',
+      'aria-label': `${s.name}: on ${pct(onPct)}, off ${pct(offPct)} of the session`,
+    }, fig);
+
+    if (frac <= 0 || frac >= 1) {
+      svgEl('circle', { cx: c, cy: c, r, class: frac >= 1 ? 'slice-on' : 'slice-off', 'data-tip': frac >= 1 ? tipOn : tipOff }, svg);
+    } else {
+      // "On" slice runs clockwise from 12 o'clock; "off" fills the rest.
+      const a = frac * 2 * Math.PI;
+      const x = c + r * Math.sin(a), y = c - r * Math.cos(a);
+      const large = frac > 0.5 ? 1 : 0;
+      svgEl('path', { d: `M${c},${c} L${c},${c - r} A${r},${r} 0 ${large} 1 ${x},${y} Z`, class: 'slice-on', 'data-tip': tipOn }, svg);
+      svgEl('path', { d: `M${c},${c} L${x},${y} A${r},${r} 0 ${1 - large} 1 ${c},${c - r} Z`, class: 'slice-off', 'data-tip': tipOff }, svg);
+    }
+
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = '<b></b><span class="v"></span><span class="sub"></span>';
+    cap.querySelector('b').textContent = s.name;
+    cap.querySelector('.v').textContent = `${pct(onPct)} on`;
+    cap.querySelector('.sub').textContent = `${L.fmtTime(onSec, false)} of ${L.fmtTime(session.endT, false)}`;
+    fig.appendChild(cap);
+    return fig;
+  }
+
+  function niceStep(max) {
+    if (max <= 5) return 1;
+    const raw = max / 5;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+  }
+
+  function barChart(items) {
+    const maxCount = Math.max(...items.map((s) => s.count));
+    const step = niceStep(Math.max(maxCount, 1));
+    const top = Math.max(step, Math.ceil(maxCount / step) * step);
+    const slot = 100, barW = 48, padL = 40, padR = 12, padT = 22, plotH = 170, padB = 42;
+    const W = padL + padR + slot * items.length, H = padT + plotH + padB;
+    const y = (v) => padT + plotH - (v / top) * plotH;
+
+    const box = document.createElement('div');
+    box.className = 'bar-wrap';
+    const svg = svgEl('svg', {
+      viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img',
+      'aria-label': 'Event frequency: ' + items.map((s) => `${s.name} ${s.count}`).join(', '),
+    }, box);
+
+    for (let v = 0; v <= top + 1e-9; v += step) {
+      svgEl('line', { x1: padL, x2: W - padR, y1: y(v), y2: y(v), class: v === 0 ? 'axis' : 'grid' }, svg);
+      const t = svgEl('text', { x: padL - 8, y: y(v) + 4, class: 'tick', 'text-anchor': 'end' }, svg);
+      t.textContent = v;
+    }
+
+    items.forEach((s, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const x0 = cx - barW / 2;
+      const yTop = y(s.count), yBase = y(0);
+      const tip = `${s.name}: ${s.count} (${s.ratePerMin.toFixed(2)}/min)`;
+      // Generous invisible hit target for the tooltip.
+      svgEl('rect', { x: cx - slot / 2 + 2, y: padT, width: slot - 4, height: plotH, class: 'hit', 'data-tip': tip }, svg);
+      if (s.count > 0) {
+        const h = yBase - yTop, rr = Math.min(4, h, barW / 2);
+        svgEl('path', {
+          d: `M${x0},${yBase} V${yTop + rr} Q${x0},${yTop} ${x0 + rr},${yTop} H${x0 + barW - rr} Q${x0 + barW},${yTop} ${x0 + barW},${yTop + rr} V${yBase} Z`,
+          class: 'bar',
+        }, svg);
+      }
+      const val = svgEl('text', { x: cx, y: yTop - 6, class: 'val', 'text-anchor': 'middle' }, svg);
+      val.textContent = s.count;
+      const lab = svgEl('text', { x: cx, y: yBase + 18, class: 'lab', 'text-anchor': 'middle' }, svg);
+      lab.textContent = s.name.length > 14 ? s.name.slice(0, 13) + '…' : s.name;
+      const key = svgEl('text', { x: cx, y: yBase + 34, class: 'tick', 'text-anchor': 'middle' }, svg);
+      key.textContent = `[${s.key.toUpperCase()}]`;
+    });
+    return box;
+  }
+
+  // One shared tooltip for every chart mark carrying data-tip.
+  const tip = document.createElement('div');
+  tip.className = 'chart-tip';
+  tip.hidden = true;
+  document.body.appendChild(tip);
+  function showTip(e) {
+    const t = e.target.closest && e.target.closest('[data-tip]');
+    if (!t) { tip.hidden = true; return; }
+    tip.textContent = t.getAttribute('data-tip');
+    tip.hidden = false;
+    const pad = 12, w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = e.clientX + pad, topY = e.clientY - h - pad;
+    if (left + w > window.innerWidth - 8) left = e.clientX - w - pad;
+    if (topY < 8) topY = e.clientY + pad;
+    tip.style.left = Math.max(8, left) + 'px';
+    tip.style.top = topY + 'px';
+  }
+  $('charts').addEventListener('pointermove', showTip);
+  $('charts').addEventListener('pointerdown', showTip);
+  $('charts').addEventListener('pointerleave', () => { tip.hidden = true; });
+  window.addEventListener('scroll', () => { tip.hidden = true; }, { passive: true });
 
   function row(tag, cells, numericFrom = Infinity) {
     const tr = document.createElement('tr');

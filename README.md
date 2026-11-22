@@ -17,6 +17,7 @@ A standalone, no-build web app for direct behavioural observation sessions. Open
 - **Interval cues:** a beep, vibration on supported phones, and a flash of the panel.
 - **Pause and resume:** the observation clock stops while paused.
 - **Undo** for the last behaviour or note entry, and **timestamped notes**.
+- **Charts on the results screen:** an on/off pie for each duration behaviour, and one bar chart of counts for all event behaviours. Hover over or tap any slice or bar for exact figures.
 - **CSV export:** a raw events log, an interval-by-interval score sheet, and a per-behaviour summary. Each file is UTF-8 with a BOM so Excel opens it correctly.
 - Keeps the screen awake during recording where the browser supports it. Setup is remembered in the browser between sessions.
 
