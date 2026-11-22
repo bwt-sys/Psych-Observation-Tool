@@ -5,7 +5,7 @@
  * Input is a plain "model" built by app.js:
  *   { meta: {participant, observer, startedAt: Date, methodLabel, intervalSec, sessionMin, endT},
  *     behaviors, summary, intervals, events, describe(ev) -> string,
- *     charts: { pies: {url, w, h} | null, bars: {url, w, h} | null } }
+ *     charts: { pies, intervalPies, bars }  each {url, w, h} | null }
  */
 (function (root) {
   'use strict';
@@ -143,24 +143,26 @@
       doc.text(fit(title, s.w + 30), x, yy + 4);
       doc.addImage(img.url, 'PNG', x, yy + 7, s.w, s.h, undefined, 'FAST');
     };
-    const pies = m.charts.pies, bars = m.charts.bars;
-    if (pies || bars) {
+    const pies = m.charts.pies, ipies = m.charts.intervalPies, bars = m.charts.bars;
+    if (pies || ipies || bars) {
       heading('Charts');
-      const TP = 'Time on vs off', TB = 'Event frequency';
-      const sp = pies && size(pies, W), sb = bars && size(bars, W);
-      if (pies && bars && sp.w + sb.w + 10 <= W) {
-        // Side by side when both fit across the page.
-        const h = Math.max(sp.h, sb.h);
-        ensure(h + 12);
-        place(TP, pies, M, y, sp);
-        place(TB, bars, M + sp.w + 10, y, sb);
-        y += h + 11;
-      } else {
-        for (const [t, img, s] of [[TP, pies, sp], [TB, bars, sb]]) {
-          if (!img) continue;
-          ensure(s.h + 12);
-          place(t, img, M, y, s);
-          y += s.h + 11;
+      const list = [['Time on vs off', pies], ['Intervals on vs off (complete intervals)', ipies], ['Event frequency', bars]]
+        .filter(([, img]) => img).map(([t, img]) => [t, img, size(img, W)]);
+      // Pair charts side by side when two fit across the page.
+      for (let i = 0; i < list.length; ) {
+        const a = list[i], b = list[i + 1];
+        if (b && a[2].w + b[2].w + 10 <= W) {
+          const h = Math.max(a[2].h, b[2].h);
+          ensure(h + 12);
+          place(a[0], a[1], M, y, a[2]);
+          place(b[0], b[1], M + a[2].w + 10, y, b[2]);
+          y += h + 11;
+          i += 2;
+        } else {
+          ensure(a[2].h + 12);
+          place(a[0], a[1], M, y, a[2]);
+          y += a[2].h + 11;
+          i += 1;
         }
       }
     }
@@ -330,6 +332,7 @@
       r += Math.ceil(img.h / 17) + 2; // rows are 15–20 px depending on the app; leave room
     };
     placeImage('Time on vs off', m.charts.pies);
+    placeImage('Intervals on vs off (complete intervals)', m.charts.intervalPies);
     placeImage('Event frequency', m.charts.bars);
 
     /* ── Intervals sheet */

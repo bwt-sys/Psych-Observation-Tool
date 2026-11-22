@@ -430,14 +430,10 @@
     if ($('chartsWrap').hidden) return;
 
     if (durations.length) {
-      const card = document.createElement('div');
-      card.className = 'chart-card';
-      card.innerHTML = '<h3>Time on vs off</h3><div class="legend"><span><i class="sw on"></i>On</span><span><i class="sw off"></i>Off</span></div>';
-      const grid = document.createElement('div');
-      grid.className = 'pies';
-      for (const s of durations) grid.appendChild(pieChart(s));
-      card.appendChild(grid);
-      wrap.appendChild(card);
+      const c = session.config;
+      wrap.appendChild(pieCard('Time on vs off', '', durations, 'time'));
+      wrap.appendChild(pieCard('Intervals on vs off',
+        `${METHOD_LABEL[c.method]}, ${c.intervalSec}s intervals · complete intervals only`, durations, 'intervals'));
     }
     if (counts.length) {
       const card = document.createElement('div');
@@ -461,29 +457,60 @@
     svgEl('path', { d: `M${cx},${cy} L${x},${y} A${r},${r} 0 ${1 - large} 1 ${cx},${cy - r} Z`, class: 'slice-off', 'data-tip': tipOff }, svg);
   }
 
-  function pieChart(s) {
+  function pieCard(title, note, durations, mode) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = '<h3></h3><p class="chart-note"></p><div class="legend"><span><i class="sw on"></i>On</span><span><i class="sw off"></i>Off</span></div>';
+    card.querySelector('h3').textContent = title;
+    const p = card.querySelector('.chart-note');
+    if (note) p.textContent = note; else p.remove();
+    const grid = document.createElement('div');
+    grid.className = 'pies';
+    for (const s of durations) grid.appendChild(pieChart(s, mode));
+    card.appendChild(grid);
+    return card;
+  }
+
+  /** What one pie shows. mode 'time': share of session time; 'intervals': share of complete intervals scored. */
+  function pieData(s, mode) {
+    if (mode === 'intervals') {
+      const total = s.intervalsTotal || 0, on = s.intervalsScored || 0;
+      if (!total) return { frac: null, big: 'n/a', sub: 'no complete intervals', aria: `${s.name}: no complete intervals` };
+      const frac = on / total, onPct = frac * 100;
+      const n = (k) => `${k} interval${k === 1 ? '' : 's'}`;
+      return {
+        frac, big: `${pct(onPct)} on`, sub: `${on} of ${n(total)}`,
+        tipOn: `${s.name}: scored in ${pct(onPct)} of intervals (${n(on)})`,
+        tipOff: `${s.name}: not scored in ${pct(100 - onPct)} of intervals (${n(total - on)})`,
+        aria: `${s.name}: on in ${pct(onPct)} of intervals, off in ${pct(100 - onPct)}`,
+      };
+    }
     const onSec = s.totalDuration || 0;
     const offSec = Math.max(0, session.endT - onSec);
     const frac = session.endT > 0 ? Math.min(1, onSec / session.endT) : 0;
     const onPct = frac * 100, offPct = 100 - onPct;
-    const tipOn = `${s.name}: on ${pct(onPct)} (${L.fmtTime(onSec, true)}, ${s.count} bout${s.count === 1 ? '' : 's'})`;
-    const tipOff = `${s.name}: off ${pct(offPct)} (${L.fmtTime(offSec, true)})`;
+    return {
+      frac, big: `${pct(onPct)} on`, sub: `${L.fmtTime(onSec, false)} of ${L.fmtTime(session.endT, false)}`,
+      tipOn: `${s.name}: on ${pct(onPct)} (${L.fmtTime(onSec, true)}, ${s.count} bout${s.count === 1 ? '' : 's'})`,
+      tipOff: `${s.name}: off ${pct(offPct)} (${L.fmtTime(offSec, true)})`,
+      aria: `${s.name}: on ${pct(onPct)}, off ${pct(offPct)} of the session`,
+    };
+  }
 
+  function pieChart(s, mode) {
+    const d = pieData(s, mode);
     const fig = document.createElement('figure');
     fig.className = 'pie';
     const size = 132, r = 60, c = size / 2;
-    const svg = svgEl('svg', {
-      viewBox: `0 0 ${size} ${size}`, width: size, height: size, role: 'img',
-      'aria-label': `${s.name}: on ${pct(onPct)}, off ${pct(offPct)} of the session`,
-    }, fig);
-
-    drawPie(svg, c, c, r, frac, tipOn, tipOff);
+    const svg = svgEl('svg', { viewBox: `0 0 ${size} ${size}`, width: size, height: size, role: 'img', 'aria-label': d.aria }, fig);
+    if (d.frac == null) svgEl('circle', { cx: c, cy: c, r: r - 1, class: 'slice-empty' }, svg);
+    else drawPie(svg, c, c, r, d.frac, d.tipOn, d.tipOff);
 
     const cap = document.createElement('figcaption');
     cap.innerHTML = '<b></b><span class="v"></span><span class="sub"></span>';
     cap.querySelector('b').textContent = s.name;
-    cap.querySelector('.v').textContent = `${pct(onPct)} on`;
-    cap.querySelector('.sub').textContent = `${L.fmtTime(onSec, false)} of ${L.fmtTime(session.endT, false)}`;
+    cap.querySelector('.v').textContent = d.big;
+    cap.querySelector('.sub').textContent = d.sub;
     fig.appendChild(cap);
     return fig;
   }
@@ -605,6 +632,7 @@
   const EXPORT_STYLE = {
     'slice-on': { fill: '#2a78d6', stroke: '#ffffff', 'stroke-width': 2, 'stroke-linejoin': 'round' },
     'slice-off': { fill: '#d3d7de', stroke: '#ffffff', 'stroke-width': 2, 'stroke-linejoin': 'round' },
+    'slice-empty': { fill: 'none', stroke: '#d3d7de', 'stroke-width': 2, 'stroke-dasharray': '4 4' },
     bar: { fill: '#2a78d6' },
     grid: { stroke: '#e6e8ec', 'stroke-width': 1 },
     axis: { stroke: '#c9ced6', 'stroke-width': 1 },
@@ -619,7 +647,7 @@
   };
 
   /** All duration pies in one SVG (with legend and captions), for export. */
-  function piesExportSVG(durations) {
+  function piesExportSVG(durations, mode) {
     const perRow = Math.min(4, durations.length);
     const cw = 170, ch = 205, legendH = 30;
     const rows = Math.ceil(durations.length / perRow);
@@ -632,14 +660,13 @@
     durations.forEach((s, i) => {
       const cx = (i % perRow) * cw + cw / 2;
       const top = legendH + Math.floor(i / perRow) * ch;
-      const onSec = s.totalDuration || 0;
-      const frac = session.endT > 0 ? Math.min(1, onSec / session.endT) : 0;
-      drawPie(svg, cx, top + 66, 62, frac, '', '');
+      const d = pieData(s, mode);
+      if (d.frac == null) svgEl('circle', { cx, cy: top + 66, r: 61, class: 'slice-empty' }, svg);
+      else drawPie(svg, cx, top + 66, 62, d.frac, '', '');
       const name = s.name.length > 20 ? s.name.slice(0, 19) + '…' : s.name;
       svgEl('text', { x: cx, y: top + 154, class: 'cap', 'text-anchor': 'middle' }, svg).textContent = name;
-      svgEl('text', { x: cx, y: top + 177, class: 'big', 'text-anchor': 'middle' }, svg).textContent = `${pct(frac * 100)} on`;
-      svgEl('text', { x: cx, y: top + 196, class: 'sub', 'text-anchor': 'middle' }, svg).textContent =
-        `${L.fmtTime(onSec, false)} of ${L.fmtTime(session.endT, false)}`;
+      svgEl('text', { x: cx, y: top + 177, class: 'big', 'text-anchor': 'middle' }, svg).textContent = d.big;
+      svgEl('text', { x: cx, y: top + 196, class: 'sub', 'text-anchor': 'middle' }, svg).textContent = d.sub;
     });
     return svg;
   }
@@ -682,10 +709,13 @@
     const { intervals, summary } = computeResults();
     const durations = summary.filter((s) => s.type === 'duration');
     const counts = summary.filter((s) => s.type === 'event');
-    const charts = { pies: null, bars: null };
+    const charts = { pies: null, intervalPies: null, bars: null };
     if (session.endT > 0) {
       try {
-        if (durations.length) charts.pies = await svgToPng(piesExportSVG(durations));
+        if (durations.length) {
+          charts.pies = await svgToPng(piesExportSVG(durations, 'time'));
+          if (durations.some((s) => s.intervalsTotal)) charts.intervalPies = await svgToPng(piesExportSVG(durations, 'intervals'));
+        }
         if (counts.length) charts.bars = await svgToPng(barChart(counts).querySelector('svg'));
       } catch (e) {
         console.warn('Charts left out of export:', e);

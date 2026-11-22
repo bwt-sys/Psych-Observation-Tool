@@ -124,6 +124,7 @@ button:disabled { cursor: progress; opacity: .7; }
 .charts { display: grid; gap: 12px; }
 .chart-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; }
+.chart-note { margin: -4px 0 8px; font-size: 12px; color: var(--muted); }
 .legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
@@ -136,6 +137,7 @@ button:disabled { cursor: progress; opacity: .7; }
 .pie figcaption .sub { color: var(--muted); font-variant-numeric: tabular-nums; }
 .slice-on { fill: var(--series-1); stroke: var(--panel); stroke-width: 2; stroke-linejoin: round; }
 .slice-off { fill: var(--slice-off); stroke: var(--panel); stroke-width: 2; stroke-linejoin: round; }
+.slice-empty { fill: none; stroke: var(--slice-off); stroke-width: 2; stroke-dasharray: 4 4; }
 .bar-wrap { overflow-x: auto; }
 .bar-wrap svg { display: block; max-width: 100%; height: auto; }
 .bar { fill: var(--series-1); }
